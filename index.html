@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker</title>
+
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: Arial;
+    background: #121212;
+    color: #e0e0e0;
+}
+
+#app {
+    max-width: 800px;
+    margin: auto;
+    padding: 20px;
+}
+
+section {
+    background: #1e1e1e;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+}
+
+form { display: flex; gap: 10px; flex-wrap: wrap; }
+
+input, select, button {
+    padding: 10px;
+    background: #292929;
+    color: #fff;
+    border: 1px solid #333;
+}
+
+button { background: #5cb85c; cursor: pointer; }
+
+ul { list-style: none; }
+
+li {
+    display: flex;
+    justify-content: space-between;
+    background: #2c2c2c;
+    margin-bottom: 10px;
+    padding: 10px;
+}
+
+.button-container { display: flex; gap: 10px; }
+
+.delete-btn { background: red; }
+</style>
+</head>
+
+<body>
+
+<div id="app">
+
+<header>
+    <h1>Expense Tracker</h1>
+</header>
+
+<main>
+
+<!-- Add Income -->
+<section>
+    <h2>Add Income</h2>
+    <form id="income-form">
+        <input type="number" id="income-amount" placeholder="Income Amount" required>
+        <button>Add</button>
+    </form>
+</section>
+
+<!-- Balance -->
+<section>
+    <h2>Balance: ₹<span id="balance-amount">0.00</span></h2>
+</section>
+
+<!-- Add Person -->
+<section>
+    <h2>Add Person</h2>
+    <form id="person-form">
+        <input type="text" id="person-name" placeholder="Person Name" required>
+        <button>Add</button>
+    </form>
+</section>
+
+<!-- Select Person -->
+<section>
+    <h2>Select Person</h2>
+    <select id="person-select">
+        <option value="">Select Person</option>
+    </select>
+</section>
+
+<!-- Add Expense -->
+<section>
+    <h2>Add Expense</h2>
+    <form id="expense-form">
+        <input type="text" id="expense-title" placeholder="Title" required>
+        <input type="number" id="expense-amount" placeholder="Amount" required>
+
+        <select id="expense-category">
+            <option value="food">Food</option>
+            <option value="transport">Transport</option>
+            <option value="shopping">Shopping</option>
+            <option value="bills">Bills</option>
+            <option value="others">Others</option>
+        </select>
+
+        <button>Add</button>
+    </form>
+</section>
+
+<!-- Expense List -->
+<section>
+    <h2>Expenses</h2>
+    <input id="search-input" placeholder="Search..." oninput="filterExpenses()">
+    <ul id="expenses"></ul>
+</section>
+
+<!-- Person History -->
+<section>
+    <h2>Person History</h2>
+    <ul id="person-expenses"></ul>
+</section>
+
+<!-- Chart -->
+<section>
+    <h2>Analytics</h2>
+    <canvas id="expense-chart"></canvas>
+</section>
+
+</main>
+
+</div>
+
+<script>
+
+// DOM
+const expenseForm = document.getElementById('expense-form');
+const expenseTitle = document.getElementById('expense-title');
+const expenseAmount = document.getElementById('expense-amount');
+const expenseCategory = document.getElementById('expense-category');
+
+const expensesList = document.getElementById('expenses');
+const personExpensesList = document.getElementById('person-expenses');
+
+const personForm = document.getElementById('person-form');
+const personName = document.getElementById('person-name');
+const personSelect = document.getElementById('person-select');
+
+const incomeForm = document.getElementById('income-form');
+const incomeAmount = document.getElementById('income-amount');
+
+const balanceEl = document.getElementById('balance-amount');
+const searchInput = document.getElementById('search-input');
+const chartCanvas = document.getElementById('expense-chart');
+
+// DATA
+let persons = {};
+let selectedPerson = "";
+let chartInstance;
+
+// Add Person
+personForm.addEventListener('submit', e => {
+    e.preventDefault();
+
+    const name = personName.value.trim();
+    if (!name) return;
+
+    if (!persons[name]) {
+        persons[name] = {
+            balance: 0,
+            expenses: []
+        };
+    }
+
+    personSelect.add(new Option(name, name));
+    personForm.reset();
+});
+
+// Select Person
+personSelect.addEventListener('change', () => {
+    selectedPerson = personSelect.value;
+
+    if (!selectedPerson) return;
+
+    balanceEl.textContent = persons[selectedPerson].balance.toFixed(2);
+
+    updateExpenseList();
+    displayPersonExpenses();
+    updateChart();
+});
+
+// Add Income
+incomeForm.addEventListener('submit', e => {
+    e.preventDefault();
+
+    if (!selectedPerson) {
+        alert("Select person first");
+        return;
+    }
+
+    const income = parseFloat(incomeAmount.value);
+    if (isNaN(income) || income <= 0) return;
+
+    persons[selectedPerson].balance += income;
+
+    balanceEl.textContent = persons[selectedPerson].balance.toFixed(2);
+    incomeForm.reset();
+});
+
+// Add Expense
+expenseForm.addEventListener('submit', e => {
+    e.preventDefault();
+
+    if (!selectedPerson) {
+        alert("Select person first");
+        return;
+    }
+
+    const title = expenseTitle.value;
+    const amount = parseFloat(expenseAmount.value);
+    const category = expenseCategory.value;
+
+    if (!title || isNaN(amount)) return;
+
+    if (persons[selectedPerson].balance < amount) {
+        alert("Insufficient balance");
+        return;
+    }
+
+    persons[selectedPerson].balance -= amount;
+
+    const exp = { title, amount, category };
+    persons[selectedPerson].expenses.push(exp);
+
+    balanceEl.textContent = persons[selectedPerson].balance.toFixed(2);
+
+    expenseForm.reset();
+
+    updateExpenseList();
+    displayPersonExpenses();
+    updateChart();
+});
+
+// Update Expense List
+function updateExpenseList(filtered = null) {
+    expensesList.innerHTML = '';
+
+    if (!selectedPerson) return;
+
+    let data = filtered || persons[selectedPerson].expenses;
+
+    if (data.length === 0) {
+        expensesList.innerHTML = '<li>No expenses</li>';
+        return;
+    }
+
+    data.forEach((e, i) => {
+        let li = document.createElement('li');
+
+        li.innerHTML = `
+        <span>${e.title} (${e.category}) - ₹${e.amount}</span>
+        <div class="button-container">
+            <button class="delete-btn" onclick="deleteExpense(${i})">Delete</button>
+        </div>
+        `;
+
+        expensesList.appendChild(li);
+    });
+}
+
+// Delete Expense
+function deleteExpense(i) {
+    const exp = persons[selectedPerson].expenses[i];
+
+    persons[selectedPerson].balance += exp.amount;
+    persons[selectedPerson].expenses.splice(i, 1);
+
+    balanceEl.textContent = persons[selectedPerson].balance.toFixed(2);
+
+    updateExpenseList();
+    displayPersonExpenses();
+    updateChart();
+}
+
+// Person History
+function displayPersonExpenses() {
+    personExpensesList.innerHTML = '';
+
+    if (!selectedPerson) return;
+
+    const list = persons[selectedPerson].expenses;
+
+    if (list.length === 0) {
+        personExpensesList.innerHTML = '<li>No transactions</li>';
+        return;
+    }
+
+    list.forEach(e => {
+        let li = document.createElement('li');
+        li.textContent = `${e.title} (${e.category}) - ₹${e.amount}`;
+        personExpensesList.appendChild(li);
+    });
+}
+
+// Search
+function filterExpenses() {
+    if (!selectedPerson) return;
+
+    const q = searchInput.value.toLowerCase();
+
+    const filtered = persons[selectedPerson].expenses.filter(e =>
+        e.title.toLowerCase().includes(q) ||
+        e.category.toLowerCase().includes(q)
+    );
+
+    updateExpenseList(filtered);
+}
+
+// Chart
+function updateChart() {
+    if (!selectedPerson) return;
+
+    const expenses = persons[selectedPerson].expenses;
+
+    const categories = [...new Set(expenses.map(e => e.category))];
+
+    const totals = categories.map(cat =>
+        expenses
+            .filter(e => e.category === cat)
+            .reduce((sum, e) => sum + e.amount, 0)
+    );
+
+    if (chartInstance) chartInstance.destroy();
+
+    chartInstance = new Chart(chartCanvas, {
+        type: 'doughnut',
+        data: {
+            labels: categories,
+            datasets: [{
+                data: totals,
+                backgroundColor: ['#ff6384','#36a2eb','#ffce56','#4caf50']
+            }]
+        }
+    });
+}
+
+</script>
+
+</body>
+</html>
